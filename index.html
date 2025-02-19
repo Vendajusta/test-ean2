@@ -34,6 +34,29 @@
         }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th, td { border: 1px solid #000; padding: 8px; text-align: left; }
+        .scanner-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.3);
+            z-index: 10;
+        }
+        .laser {
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background: red;
+            z-index: 11;
+            box-shadow: 0 0 4px red;
+            animation: scan 2s infinite;
+        }
+        @keyframes scan {
+            0% { top: 0; }
+            50% { top: 100%; }
+            100% { top: 0; }
+        }
     </style>
 </head>
 <body>
@@ -60,27 +83,44 @@
             "8593893752012": "Chléb"
         };
 
+        // Přidáme proměnnou pro sledování posledního kódu
+        let lastCode = null;
+        let lastTime = 0;
+
         function startScanner() {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 alert("Váš prohlížeč nepodporuje přístup ke kameře");
                 return;
             }
 
-            document.getElementById('scanner-container').style.display = 'block';
+            const scannerContainer = document.getElementById('scanner-container');
+            scannerContainer.style.display = 'block';
             document.getElementById('stop-button').style.display = 'inline';
+            
+            // Přidáme overlay a laser efekt
+            scannerContainer.innerHTML = '<div class="scanner-overlay"><div class="laser"></div></div>';
             
             Quagga.init({
                 inputStream: {
                     name: "Live",
                     type: "LiveStream",
-                    target: document.querySelector("#scanner-container"),
+                    target: scannerContainer,
                     constraints: {
-                        facingMode: "environment"
-                    },
+                        facingMode: "environment",
+                        aspectRatio: { min: 1, max: 2 }
+                    }
                 },
+                locator: {
+                    patchSize: "medium",
+                    halfSample: true
+                },
+                numOfWorkers: 2,
                 decoder: {
-                    readers: ["ean_reader", "ean_8_reader"]
-                }
+                    readers: ["ean_reader", "ean_8_reader"],
+                    multiple: false,
+                    debug: false
+                },
+                locate: true
             }, function(err) {
                 if (err) {
                     alert("Chyba při spouštění kamery. Ujistěte se, že jste povolili přístup ke kameře.");
@@ -89,7 +129,29 @@
                 Quagga.start();
             });
 
-            Quagga.onDetected(processBarcode);
+            Quagga.onDetected(function(result) {
+                const code = result.codeResult.code;
+                const now = Date.now();
+                
+                // Kontrola kvality a prevence duplicit
+                if (result.codeResult.decodedCodes.some(x => x.error !== undefined)) {
+                    return;
+                }
+                
+                // Ignorujeme stejný kód po dobu 2 sekund
+                if (code === lastCode && now - lastTime < 2000) {
+                    return;
+                }
+
+                // Přehrajeme zvuk při úspěšném naskenování
+                const beep = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1NOTQrHxsVDwwLCgoLDRIWHy89VH2dwejSv72vjoNvU0MzJRoRCgQBAAEDBQoRHD5Zc5a/3u/t7OlILhEGAAAAAAAAAAAABRQsQ1BYVBYDAAAAAAAABx4vP0hLSjYaCwMAAAAAAQMFAwAAABUwTGR4jGRgWxIAAAAAAAAMFyIoIyckHRQOCAAAAAAAAAEAAAQ7TGmRo6xYOI95UzYnGhEODQ0MDBg6VnqcudHRspaAbl1INy0hGBEOCwgHCQwQFh4uQ1+Cq9Xs/vPdzqaNb1hELhwQBwQBAAABAwYLFSc8V3mjv8vG4snesFwiEgcDAgMCAQAAAQEAAAUJEBUbICIcDwUAAQMGCg0PEBmjw972/f/++OHAt5mAZ0s1IxYKAgAAAAAAAAADCRIbJSovMygjNExTY2dLLRcLAwAAAAAAAAEDCAoMDQ4MDAsTJjZGT0gfBQEBAQAAAAA9XXN1bGBhR0hXTDurv7rF4+3z+PX48fT145djUzQcBAAAAgHTI0RSOy0oJB4ZDwYAAAEAAAAAAAAADhwqNDo1Lzc9UmVgWkktGg0EAQAAAAAAAAYTGiAkKi80PUQ0IxsRCQcEAgEAAAAzXX+gr8zW3NTEq5BePhwFAAAAAAAAAAImNkBHRTkeIzM8RE5OQzkkGRAEAAA3PWFbYYGWjXxxbmhGMiUXEg0ICRYkMkRWaX2Tm6Gnt8TJ19vU1dzpQzQZBAAAAwAAABUyQE5YYmVZRy4fEQUAAAAAAAAAAAYUD0ZRWFdSSDkrGxILCgkJEBYeJzM+RkxEPzMrIh0XDQYAAAAAAAAAAAAlvMKyi1xALSEYDQQAAAAAAAAAAAAAAAYVJThNX25+eGNrb1xHOi4iGRMQCw0NDAwTGiQyRVlpeoiZrLm6trGporjC0MbDtKiim6Ceo6elp62pq7CutQ0KBgAAAABDbop2cH+MioJ6dG5lVkQvHREOCwAAAAAAAAAAADRGWWp8jZyvvsTDeVdAJRQDbZWxx9Lc5/IAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+                beep.play();
+
+                lastCode = code;
+                lastTime = now;
+                
+                processBarcode(result);
+            });
         }
 
         function stopScanner() {
@@ -99,7 +161,7 @@
         }
 
         function processBarcode(result) {
-            let code = result.codeResult.code;
+            const code = result.codeResult.code;
             let name = database[code] || "Neznámý produkt";
             let quantity = prompt(`Zadej počet kusů pro ${name} (${code}):`, 1);
             if (quantity) addProduct(code, name, quantity);
